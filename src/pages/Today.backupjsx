@@ -1,0 +1,714 @@
+import { useEffect, useState } from "react"
+import { getAIInsight, checkOllamaStatus } from "../lib/ollama"
+
+const CYCLE_KEY = "femwork_cycle"
+const BRAIN_STATE_KEY = "femwork_brain_state"
+const GROUNDING_KEY = "femwork_grounding"
+const CLIENTS_KEY = "femwork_clients"
+
+function getPhaseInfo(cycleDay) {
+  if (cycleDay >= 1 && cycleDay <= 5) {
+    return {
+      phase: "Menstrual",
+      message: "Start your day with intention and presence.",
+      strengths: ["Gentle planning", "Intuitive flow", "Presence"],
+      tasks: ["Morning pages", "Light admin", "Inbox clearing"]
+    }
+  } else if (cycleDay >= 6 && cycleDay <= 13) {
+    return {
+      phase: "Follicular",
+      message: "Channel your creative energy into new beginnings.",
+      strengths: ["Creative thinking", "Planning", "Learning"],
+      tasks: ["Brainstorm session", "New project setup", "Strategic planning"]
+    }
+  } else if (cycleDay >= 14 && cycleDay <= 16) {
+    return {
+      phase: "Ovulatory",
+      message: "Your energy is high—connect and communicate.",
+      strengths: ["Communication", "Connection", "Leadership"],
+      tasks: ["Client meetings", "Presentations", "Networking"]
+    }
+  } else {
+    return {
+      phase: "Luteal",
+      message: "Focus on completion and attention to detail.",
+      strengths: ["Detail work", "Editing", "Organizing"],
+      tasks: ["Finish projects", "Admin tasks", "Quality checks"]
+    }
+  }
+}
+
+function getTimerRecommendation(phase, energyLevel, taskPriority) {
+  // Base times by phase
+  const phaseTimes = {
+    "Menstrual": { base: 15, max: 25 },
+    "Follicular": { base: 25, max: 45 },
+    "Ovulatory": { base: 30, max: 60 },
+    "Luteal": { base: 20, max: 45 }
+  }
+  
+  const phaseTime = phaseTimes[phase] || { base: 25, max: 45 }
+  
+  // Adjust for energy
+  let time = phaseTime.base
+  if (energyLevel === "High") time = phaseTime.max
+  if (energyLevel === "Low") time = Math.max(phaseTime.base - 10, 10)
+  
+  // Adjust for priority
+  if (taskPriority === "High") time = Math.min(time + 5, phaseTime.max)
+  
+  return time
+}
+
+function getBreakRecommendation(phase, energyLevel) {
+  if (phase === "Menstrual" || energyLevel === "Low") {
+    return "Take a 10-15 minute break. Consider gentle movement or rest."
+  }
+  if (phase === "Ovulatory" && energyLevel === "High") {
+    return "5-10 minute break is enough. You have good momentum!"
+  }
+  return "Take a 5-10 minute break. Stretch or hydrate."
+}
+
+export default function Today() {
+  const [cycle, setCycle] = useState(null)
+  const [phaseInfo, setPhaseInfo] = useState(null)
+  const [grounding, setGrounding] = useState({
+    breathwork: false,
+    meditation: false,
+    journal: false,
+    stretch: false,
+    intention: false,
+    voiceNote: false
+  })
+  const [brainState, setBrainState] = useState(null)
+  const [todayTasks, setTodayTasks] = useState([])
+  const [selectedTask, setSelectedTask] = useState(null)
+  const [currentMicroTask, setCurrentMicroTask] = useState(null)
+  const [timerDuration, setTimerDuration] = useState(25)
+  const [focusMood, setFocusMood] = useState("Calm")
+  const [showFocusCoach, setShowFocusCoach] = useState(false)
+  
+  // AI Insight states
+  const [aiInsight, setAiInsight] = useState(null)
+  const [loadingInsight, setLoadingInsight] = useState(false)
+  const [ollamaRunning, setOllamaRunning] = useState(false)
+
+  useEffect(() => {
+    // Load cycle data
+    const cycleData = localStorage.getItem(CYCLE_KEY)
+    if (cycleData) {
+      try {
+        const parsed = JSON.parse(cycleData)
+        if (parsed.start_date) {
+          const startDate = new Date(parsed.start_date)
+          const today = new Date()
+          today.setHours(0, 0, 0, 0)
+          startDate.setHours(0, 0, 0, 0)
+          
+          const diff = Math.floor((today - startDate) / (1000 * 60 * 60 * 24))
+          const cycleDay = (diff % parsed.cycle_length) + 1
+          
+          setCycle({ ...parsed, currentDay: cycleDay })
+          setPhaseInfo(getPhaseInfo(cycleDay))
+        }
+      } catch (e) {
+        console.error("Error loading cycle data:", e)
+      }
+    } else {
+      // Set default phase info if no cycle data
+      setPhaseInfo(getPhaseInfo(14)) // Default to mid-cycle
+    }
+
+    // Load brain state
+    const brainData = localStorage.getItem(BRAIN_STATE_KEY)
+    if (brainData) {
+      try {
+        setBrainState(JSON.parse(brainData))
+      } catch (e) {
+        console.error("Error loading brain state:", e)
+      }
+    }
+
+    // Load grounding rituals
+    const groundingData = localStorage.getItem(GROUNDING_KEY)
+    if (groundingData) {
+      try {
+        setGrounding(JSON.parse(groundingData))
+      } catch (e) {
+        console.error("Error loading grounding data:", e)
+        setGrounding({
+          breathwork: false,
+          meditation: false,
+          journal: false,
+          stretch: false,
+          intention: false,
+          voiceNote: false
+        })
+      }
+    }
+
+    // Load today's tasks from clients
+    loadTodayTasks()
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem(GROUNDING_KEY, JSON.stringify(grounding))
+  }, [grounding])
+
+  function loadTodayTasks() {
+    const clientsData = localStorage.getItem(CLIENTS_KEY)
+    if (!clientsData) {
+      setTodayTasks([])
+      return
+    }
+
+    try {
+      const clients = JSON.parse(clientsData)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      
+      const sevenDaysFromNow = new Date(today)
+      sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7)
+
+      // Get all tasks due within the next 7 days
+      const relevantTasks = []
+      clients.forEach(client => {
+        if (client.tasks && Array.isArray(client.tasks)) {
+          client.tasks.forEach(task => {
+            if (task.completed) return
+            
+            const deadline = new Date(task.deadline)
+            deadline.setHours(0, 0, 0, 0)
+            
+            if (deadline >= today && deadline <= sevenDaysFromNow) {
+              relevantTasks.push({
+                ...task,
+                clientName: client.name,
+                clientId: client.id,
+                daysUntilDue: Math.floor((deadline - today) / (1000 * 60 * 60 * 24))
+              })
+            }
+          })
+        }
+      })
+
+      // Sort by deadline (soonest first)
+      relevantTasks.sort((a, b) => a.daysUntilDue - b.daysUntilDue)
+      setTodayTasks(relevantTasks)
+    } catch (e) {
+      console.error("Error loading tasks:", e)
+      setTodayTasks([])
+    }
+  }
+  
+  async function fetchAIInsight() {
+    if (!cycle || !phaseInfo || !brainState) {
+      alert("Please set your cycle info and energy level in the Me tab first!")
+      return
+    }
+    
+    setLoadingInsight(true)
+    
+    const result = await getAIInsight({
+      cycleDay: cycle.currentDay,
+      phase: phaseInfo.phase,
+      energy: brainState.energy || 'Medium',
+      tasks: todayTasks,
+      grounding: grounding
+    })
+    
+    if (result.success) {
+      setAiInsight(result.insight)
+    } else {
+      // Use fallback
+      setAiInsight(result.fallback || "Unable to get AI insight. Make sure Ollama is running with: ollama serve")
+    }
+    
+    setLoadingInsight(false)
+  }
+  
+  useEffect(() => {
+    // Check if Ollama is running
+    checkOllamaStatus().then(status => {
+      setOllamaRunning(status.running)
+    })
+  }, [])
+
+  function toggleGrounding(key) {
+    setGrounding(prev => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  function startFocusSession(task, microTask) {
+    setSelectedTask(task)
+    setCurrentMicroTask(microTask)
+    
+    // Calculate recommended timer duration
+    const energyLevel = brainState?.energy || "Medium"
+    const recommended = getTimerRecommendation(
+      phaseInfo?.phase || "Follicular",
+      energyLevel,
+      task.priority
+    )
+    
+    setTimerDuration(recommended)
+    setShowFocusCoach(true)
+  }
+
+  function getDueLabel(daysUntil) {
+    if (daysUntil === 0) return "Due today"
+    if (daysUntil === 1) return "Due tomorrow"
+    return `Due in ${daysUntil} days`
+  }
+
+  const energyLevel = brainState?.energy || "Medium"
+
+  return (
+    <div style={{ padding: "20px", maxWidth: "800px", margin: "0 auto", paddingBottom: "100px" }}>
+      <h1 style={{ textAlign: "center", marginBottom: "8px", fontSize: "24px" }}>
+        FemWork
+      </h1>
+
+      {phaseInfo && (
+        <p style={{ 
+          textAlign: "center", 
+          colour: "#666", 
+          fontSize: "14px",
+          marginBottom: "24px",
+          fontStyle: "italic"
+        }}>
+          {phaseInfo.message}
+        </p>
+      )}
+
+      {!cycle && (
+        <div style={{
+          background: "#fff9e6",
+          borderRadius: "12px",
+          padding: "20px",
+          marginBottom: "24px",
+          textAlign: "center",
+          border: "2px solid #c9a87c"
+        }}>
+          <p style={{ margin: "0 0 12px 0", fontSize: "16px", fontWeight: 500 }}>
+            👋 Welcome to FemWork!
+          </p>
+          <p style={{ margin: 0, fontSize: "14px", colour: "#666" }}>
+            Head to the <strong>Me</strong> tab to add your cycle info and unlock personalised work insights based on your natural rhythms.
+          </p>
+        </div>
+      )}
+
+      {/* Rhythmic Work Insight */}
+      {phaseInfo && (
+        <div style={{
+          background: "white",
+          borderRadius: "12px",
+          padding: "20px",
+          marginBottom: "20px",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.08)"
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+            <h3 style={{ margin: 0, colour: "#c9a87c", display: "flex", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontSize: "20px" }}>●</span>
+              Today's Rhythmic Work Insight
+            </h3>
+            <button 
+              onClick={fetchAIInsight}
+              disabled={loadingInsight}
+              style={{
+                background: ollamaRunning ? "#c9a87c" : "#999",
+                colour: "white",
+                border: "none",
+                padding: "8px 16px",
+                borderRadius: "6px",
+                fontSize: "14px",
+                cursor: loadingInsight ? "wait" : "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px"
+              }}
+            >
+              {loadingInsight ? "Thinking..." : ollamaRunning ? "🤖 AI Insight" : "⚠️ AI Offline"}
+            </button>
+          </div>
+
+          {/* AI Generated Insight */}
+          {aiInsight && (
+            <div style={{
+              background: "linear-gradient(135deg, #f0f0ff 0%, #fff0f5 100%)",
+              padding: "16px",
+              borderRadius: "8px",
+              marginBottom: "16px",
+              border: "2px solid #c9a87c"
+            }}>
+              <div style={{ fontSize: "13px", colour: "#c9a87c", marginBottom: "8px", fontWeight: 600 }}>
+                🤖 AI INSIGHT
+              </div>
+              <div style={{ fontSize: "14px", lineHeight: "1.6", colour: "#333" }}>
+                {aiInsight}
+              </div>
+            </div>
+          )}
+
+          {!ollamaRunning && (
+            <div style={{
+              background: "#fff4e6",
+              padding: "12px",
+              borderRadius: "8px",
+              marginBottom: "16px",
+              fontSize: "13px",
+              colour: "#cc8800"
+            }}>
+              💡 To enable AI insights, run <code style={{ background: "#ffe6cc", padding: "2px 6px", borderRadius: "3px" }}>ollama serve</code> in your terminal
+            </div>
+          )}
+
+          <div style={{
+            background: "#f8f9fa",
+            padding: "12px",
+            borderRadius: "8px",
+            marginBottom: "16px",
+            fontSize: "14px"
+          }}>
+            <strong>Day {cycle?.currentDay}</strong> • {phaseInfo.phase} Phase • Energy: {energyLevel}
+          </div>
+
+          <div style={{ marginBottom: "16px" }}>
+            <strong style={{ display: "block", marginBottom: "8px", fontSize: "14px" }}>
+              WORK STRENGTHS TODAY
+            </strong>
+            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+              {phaseInfo.strengths.map((strength, i) => (
+                <span key={i} style={{
+                  background: "#f5f5f5",
+                  padding: "6px 12px",
+                  borderRadius: "6px",
+                  fontSize: "13px"
+                }}>
+                  {strength}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <strong style={{ display: "block", marginBottom: "8px", fontSize: "14px" }}>
+              ACTIVATION TASKS
+            </strong>
+            <ul style={{ margin: 0, paddingLeft: "20px", colour: "#666" }}>
+              {phaseInfo.tasks.map((task, i) => (
+                <li key={i} style={{ marginBottom: "4px", fontSize: "14px" }}>{task}</li>
+              ))}
+            </ul>
+          </div>
+
+          <p style={{ 
+            marginTop: "16px", 
+            fontSize: "14px", 
+            fontStyle: "italic", 
+            colour: "#666",
+            borderTop: "1px solid #eee",
+            paddingTop: "16px"
+          }}>
+            {phaseInfo.message}
+          </p>
+        </div>
+      )}
+
+      {/* Grounding Ritual */}
+      <div style={{
+        background: "white",
+        borderRadius: "12px",
+        padding: "20px",
+        marginBottom: "20px",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.08)"
+      }}>
+        <h3 style={{ margin: "0 0 16px 0", colour: "#999", fontSize: "18px" }}>
+          Grounding Ritual
+        </h3>
+
+        {[
+          { key: "breathwork", label: "Breathwork" },
+          { key: "meditation", label: "Meditation" },
+          { key: "journal", label: "Five minute journal" },
+          { key: "stretch", label: "Stretch" },
+          { key: "intention", label: "Set intention" },
+          { key: "voiceNote", label: "Voice note check-in" }
+        ].map(item => (
+          <div key={item.key} style={{ 
+            display: "flex", 
+            alignItems: "center", 
+            gap: "12px",
+            marginBottom: "12px"
+          }}>
+            <input
+              type="checkbox"
+              checked={grounding[item.key]}
+              onChange={() => toggleGrounding(item.key)}
+              style={{ width: "20px", height: "20px", cursor: "pointer" }}
+            />
+            <span style={{ fontSize: "15px" }}>{item.label}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Today's Tasks from Clients */}
+      <div style={{
+        background: "white",
+        borderRadius: "12px",
+        padding: "20px",
+        marginBottom: "20px",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.08)"
+      }}>
+        <h3 style={{ margin: "0 0 16px 0", fontSize: "18px" }}>
+          Today's Tasks
+        </h3>
+
+        {todayTasks.length === 0 ? (
+          <p style={{ 
+            textAlign: "center", 
+            colour: "#999", 
+            padding: "40px 20px",
+            fontSize: "14px"
+          }}>
+            No tasks due soon. Add tasks with deadlines in the Clients tab.
+          </p>
+        ) : (
+          <div>
+            {todayTasks.map((task) => (
+              <div
+                key={task.id}
+                style={{
+                  marginBottom: "20px",
+                  paddingBottom: "20px",
+                  borderBottom: "1px solid #f0f0f0"
+                }}
+              >
+                <div style={{ marginBottom: "12px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "8px" }}>
+                    <h4 style={{ margin: 0, fontSize: "16px" }}>{task.name}</h4>
+                    <span style={{
+                      fontSize: "12px",
+                      padding: "4px 8px",
+                      borderRadius: "4px",
+                      background: task.daysUntilDue === 0 ? "#ffe6e6" : task.daysUntilDue <= 2 ? "#fff4e6" : "#f0f0f0",
+                      colour: task.daysUntilDue === 0 ? "#cc0000" : task.daysUntilDue <= 2 ? "#cc8800" : "#666",
+                      fontWeight: 500,
+                      whiteSpace: "nowrap"
+                    }}>
+                      {getDueLabel(task.daysUntilDue)}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: "13px", colour: "#999" }}>
+                    {task.clientName} • {task.priority} Priority
+                  </div>
+                </div>
+
+                <div style={{ paddingLeft: "12px" }}>
+                  <div style={{ fontSize: "13px", fontWeight: 500, marginBottom: "8px", colour: "#666" }}>
+                    Micro-tasks to focus on:
+                  </div>
+                  {task.microTasks.filter(mt => !mt.completed).slice(0, 3).map((microTask) => (
+                    <div
+                      key={microTask.id}
+                      style={{
+                        background: "#f8f9fa",
+                        padding: "12px",
+                        borderRadius: "8px",
+                        marginBottom: "8px"
+                      }}
+                    >
+                      <div style={{ 
+                        display: "flex", 
+                        justifyContent: "space-between", 
+                        alignItems: "flex-start",
+                        gap: "12px"
+                      }}>
+                        <span style={{ flex: 1, fontSize: "14px" }}>
+                          {microTask.text}
+                        </span>
+                        <button
+                          onClick={() => startFocusSession(task, microTask)}
+                          style={{
+                            background: "#c9a87c",
+                            colour: "white",
+                            border: "none",
+                            padding: "6px 12px",
+                            borderRadius: "6px",
+                            fontSize: "12px",
+                            cursor: "pointer",
+                            whiteSpace: "nowrap"
+                          }}
+                        >
+                          Focus on this
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {task.microTasks.filter(mt => !mt.completed).length > 3 && (
+                    <div style={{ fontSize: "12px", colour: "#999", marginTop: "8px" }}>
+                      + {task.microTasks.filter(mt => !mt.completed).length - 3} more micro-tasks
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Focus Coach Modal */}
+      {showFocusCoach && selectedTask && currentMicroTask && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(0,0,0,0.5)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 1000,
+          padding: "20px"
+        }}>
+          <div style={{
+            background: "white",
+            borderRadius: "12px",
+            padding: "24px",
+            maxWidth: "500px",
+            width: "100%"
+          }}>
+            <h3 style={{ marginBottom: "16px", fontSize: "20px" }}>Focus Coach</h3>
+
+            <div style={{
+              background: "#f8f9fa",
+              padding: "16px",
+              borderRadius: "8px",
+              marginBottom: "20px"
+            }}>
+              <div style={{ fontSize: "13px", colour: "#666", marginBottom: "4px" }}>
+                {selectedTask.clientName} • {selectedTask.name}
+              </div>
+              <div style={{ fontSize: "15px", fontWeight: 500 }}>
+                {currentMicroTask.text}
+              </div>
+            </div>
+
+            <div style={{
+              background: "#e6f7ff",
+              padding: "12px",
+              borderRadius: "8px",
+              marginBottom: "20px",
+              fontSize: "14px"
+            }}>
+              <strong>Recommended:</strong> {timerDuration} minutes based on your {phaseInfo?.phase} phase and {energyLevel} energy
+            </div>
+
+            <div style={{ marginBottom: "16px" }}>
+              <label style={{ display: "block", marginBottom: "8px", fontSize: "14px" }}>
+                How does your mind feel right now?
+              </label>
+              <select
+                value={focusMood}
+                onChange={(e) => setFocusMood(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "12px",
+                  borderRadius: "8px",
+                  border: "1px solid #ddd",
+                  fontSize: "15px"
+                }}
+              >
+                <option>Calm</option>
+                <option>Focused</option>
+                <option>Wired</option>
+                <option>Foggy</option>
+                <option>Tender</option>
+              </select>
+            </div>
+
+            <div style={{ marginBottom: "20px" }}>
+              <label style={{ display: "block", marginBottom: "8px", fontSize: "14px" }}>
+                Focus duration
+              </label>
+              <div style={{ 
+                display: "grid", 
+                gridTemplateColumns: "repeat(4, 1fr)", 
+                gap: "8px"
+              }}>
+                {[5, 10, 15, 20, 25, 30, 45, 60].map(mins => (
+                  <button
+                    key={mins}
+                    onClick={() => setTimerDuration(mins)}
+                    style={{
+                      padding: "12px",
+                      borderRadius: "8px",
+                      border: "none",
+                      background: timerDuration === mins ? "#c9a87c" : "#f5f5f5",
+                      colour: timerDuration === mins ? "white" : "#333",
+                      cursor: "pointer",
+                      fontSize: "14px",
+                      fontWeight: timerDuration === mins ? 600 : 400
+                    }}
+                  >
+                    {mins}m
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{
+              background: "#fff4e6",
+              padding: "12px",
+              borderRadius: "8px",
+              marginBottom: "20px",
+              fontSize: "13px",
+              colour: "#666"
+            }}>
+              💡 After this session: {getBreakRecommendation(phaseInfo?.phase || "Follicular", energyLevel)}
+            </div>
+
+            <div style={{ display: "flex", gap: "12px" }}>
+              <button
+                onClick={() => setShowFocusCoach(false)}
+                style={{
+                  flex: 1,
+                  padding: "14px",
+                  background: "white",
+                  border: "1px solid #ddd",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  fontSize: "15px"
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  // Here you would start the actual timer
+                  alert(`Starting ${timerDuration} minute focus session!`)
+                  setShowFocusCoach(false)
+                }}
+                style={{
+                  flex: 1,
+                  padding: "14px",
+                  background: "#c9a87c",
+                  colour: "white",
+                  border: "none",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  fontSize: "15px",
+                  fontWeight: 600
+                }}
+              >
+                Start Focus
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+    )
+}
