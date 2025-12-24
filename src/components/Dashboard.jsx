@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { calculateDailyCapacity, isImpossibleDay, getBareMinimumTasks, prioritizeTasks } from "../lib/capacity"
 import { pickNextTask } from "../lib/taskPicker"
 import { getCelebrationForTask } from "../lib/celebrations"
-import { getAIInsight, checkOllamaStatus } from "../lib/ollama"
+import { getAIInsight, isAIConfigured, getAIStatus } from "../lib/ai"
 import DailyCheckIn from "./DailyCheckIn"
 
 const CYCLE_KEY = "femwork_cycle"
@@ -80,14 +80,12 @@ export default function Dashboard() {
   // AI Insight
   const [aiInsight, setAiInsight] = useState(null)
   const [loadingInsight, setLoadingInsight] = useState(false)
-  const [ollamaRunning, setOllamaRunning] = useState(false)
+  const [aiStatus, setAiStatus] = useState({ configured: false })
 
   useEffect(() => {
     loadData()
     checkIfNeedsCheckIn()
-    checkOllamaStatus().then(status => {
-      setOllamaRunning(status.running)
-    })
+    setAiStatus(getAIStatus())
   }, [])
 
   function loadData() {
@@ -535,7 +533,7 @@ export default function Dashboard() {
               onClick={fetchAIInsight}
               disabled={loadingInsight}
               style={{
-                background: ollamaRunning ? "#c9a87c" : "#999",
+                background: aiStatus.configured ? "#c9a87c" : "#999",
                 color: "white",
                 border: "none",
                 padding: "8px 16px",
@@ -547,7 +545,7 @@ export default function Dashboard() {
                 gap: "6px"
               }}
             >
-              {loadingInsight ? "Thinking..." : ollamaRunning ? "🤖 AI Insight" : "⚠️ AI Offline"}
+              {loadingInsight ? "Thinking..." : aiStatus.message}
             </button>
           </div>
 

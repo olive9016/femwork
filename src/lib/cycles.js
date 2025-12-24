@@ -1,41 +1,25 @@
-// Cycle management functions
-// Using localStorage for now - can be connected to Supabase later
+// src/lib/cycles.js
+// Helper function for cycle phase calculation
+// Used by Schedule page (Me.jsx has its own implementation)
 
-const CYCLES_KEY = "femwork_cycles"
-
-export async function getCycles(userId) {
-  // Simulate async operation
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      const stored = localStorage.getItem(CYCLES_KEY)
-      if (stored) {
-        const allCycles = JSON.parse(stored)
-        const userCycles = allCycles.filter(c => c.user_id === userId)
-        resolve(userCycles)
-      } else {
-        resolve([])
-      }
-    }, 100)
-  })
-}
-
-export async function addCycle(cycleData) {
-  // Simulate async operation
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      const stored = localStorage.getItem(CYCLES_KEY)
-      const existing = stored ? JSON.parse(stored) : []
-      
-      const newCycle = {
-        ...cycleData,
-        id: Date.now().toString(),
-        created_at: new Date().toISOString()
-      }
-      
-      const updated = [...existing, newCycle]
-      localStorage.setItem(CYCLES_KEY, JSON.stringify(updated))
-      
-      resolve(newCycle)
-    }, 100)
-  })
+export function getCurrentPhase(cycleData) {
+  if (!cycleData || !cycleData.start_date) {
+    return { phase: "Follicular", cycleDay: 1 }
+  }
+  
+  const start = new Date(cycleData.start_date)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  start.setHours(0, 0, 0, 0)
+  
+  const diff = Math.floor((today - start) / (1000 * 60 * 60 * 24))
+  const cycleDay = (diff % cycleData.cycle_length) + 1
+  
+  let phase = "Follicular"
+  if (cycleDay >= 1 && cycleDay <= 5) phase = "Menstrual"
+  else if (cycleDay >= 6 && cycleDay <= 13) phase = "Follicular"
+  else if (cycleDay >= 14 && cycleDay <= 16) phase = "Ovulatory"
+  else phase = "Luteal"
+  
+  return { phase, cycleDay }
 }

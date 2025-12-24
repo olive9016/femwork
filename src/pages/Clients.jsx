@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { getAITaskBreakdown } from "../lib/ollama"
+import { getAITaskBreakdown } from "../lib/ai"
 
 const CLIENTS_KEY = "femwork_clients"
 const CYCLE_KEY = "femwork_cycle"
