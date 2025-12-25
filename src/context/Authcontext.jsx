@@ -16,7 +16,6 @@ export function AuthProvider({ children }) {
     function handleOnline() {
       console.log('🌐 Back online!')
       setIsOnline(true)
-      // Sync when coming back online
       if (user) {
         syncToSupabase(user.id)
       }
@@ -42,7 +41,6 @@ export function AuthProvider({ children }) {
       setUser(session?.user ?? null)
       setLoading(false)
       
-      // If user is logged in and online, sync their data from Supabase
       if (session?.user && navigator.onLine) {
         syncFromSupabase(session.user.id)
       }
@@ -63,26 +61,24 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe()
   }, [])
 
-  // Sync localStorage data to Supabase when user is authenticated
   async function syncToSupabase(userId) {
     if (!userId) return
     
-    // Check if online
     if (!navigator.onLine) {
       console.log('📴 Offline - sync will happen when back online')
       return
     }
 
     try {
-      // Get all localStorage data
       const cycleData = localStorage.getItem('femwork_cycle')
       const clientsData = localStorage.getItem('femwork_clients')
       const personalTasksData = localStorage.getItem('femwork_personal_tasks')
       const checkInsData = localStorage.getItem('femwork_daily_checkins')
       const groundingData = localStorage.getItem('femwork_grounding')
       const ideasData = localStorage.getItem('femwork_ideas')
+      const symptomsData = localStorage.getItem('femwork_symptoms')
+      const scheduleData = localStorage.getItem('femwork_daily_schedule')
 
-      // Upsert user data to Supabase
       const { error } = await supabase
         .from('user_data')
         .upsert({
@@ -93,6 +89,8 @@ export function AuthProvider({ children }) {
           check_ins_data: checkInsData ? JSON.parse(checkInsData) : null,
           grounding_data: groundingData ? JSON.parse(groundingData) : null,
           ideas_data: ideasData ? JSON.parse(ideasData) : null,
+          symptoms_data: symptomsData ? JSON.parse(symptomsData) : null,
+          schedule_data: scheduleData ? JSON.parse(scheduleData) : null,
           updated_at: new Date().toISOString()
         })
 
@@ -106,7 +104,6 @@ export function AuthProvider({ children }) {
     }
   }
 
-  // Load data from Supabase to localStorage
   async function syncFromSupabase(userId) {
     if (!userId || !navigator.onLine) return
 
@@ -127,7 +124,6 @@ export function AuthProvider({ children }) {
       }
 
       if (data) {
-        // Load data into localStorage
         if (data.cycle_data) {
           localStorage.setItem('femwork_cycle', JSON.stringify(data.cycle_data))
         }
@@ -146,6 +142,12 @@ export function AuthProvider({ children }) {
         if (data.ideas_data) {
           localStorage.setItem('femwork_ideas', JSON.stringify(data.ideas_data))
         }
+        if (data.symptoms_data) {
+          localStorage.setItem('femwork_symptoms', JSON.stringify(data.symptoms_data))
+        }
+        if (data.schedule_data) {
+          localStorage.setItem('femwork_daily_schedule', JSON.stringify(data.schedule_data))
+        }
         
         console.log('✅ Data loaded from Supabase')
         window.location.reload()
@@ -155,7 +157,6 @@ export function AuthProvider({ children }) {
     }
   }
 
-  // Auto-sync to Supabase every 30 seconds if user is logged in and online
   useEffect(() => {
     if (!user) return
 
@@ -163,12 +164,11 @@ export function AuthProvider({ children }) {
       if (navigator.onLine) {
         syncToSupabase(user.id)
       }
-    }, 30000) // 30 seconds
+    }, 30000)
 
     return () => clearInterval(interval)
   }, [user])
 
-  // Sign up with email
   async function signUp(email, password) {
     if (!navigator.onLine) {
       throw new Error('Cannot sign up while offline. Please connect to the internet.')
@@ -181,7 +181,6 @@ export function AuthProvider({ children }) {
     
     if (error) throw error
     
-    // Sync current localStorage data after signup
     if (data.user) {
       await syncToSupabase(data.user.id)
     }
@@ -189,7 +188,6 @@ export function AuthProvider({ children }) {
     return data
   }
 
-  // Sign in with email
   async function signIn(email, password) {
     if (!navigator.onLine) {
       throw new Error('Cannot sign in while offline. Please connect to the internet.')
@@ -204,9 +202,7 @@ export function AuthProvider({ children }) {
     return data
   }
 
-  // Sign out
   async function signOut() {
-    // Sync one last time before signing out (if online)
     if (user && navigator.onLine) {
       await syncToSupabase(user.id)
     }
@@ -216,11 +212,9 @@ export function AuthProvider({ children }) {
       throw error
     }
     
-    // Clear localStorage
     localStorage.clear()
   }
 
-  // Manual sync function
   async function manualSync() {
     if (!navigator.onLine) {
       throw new Error('Cannot sync while offline')
