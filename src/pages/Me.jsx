@@ -1,723 +1,574 @@
 import { useState, useEffect } from 'react'
-import { useAuth } from '../context/AuthContext'
 
 const CYCLE_KEY = 'femwork_cycle'
-const SYMPTOMS_KEY = 'femwork_symptoms'
+const PERIOD_HISTORY_KEY = 'femwork_period_history'
 
 export default function Me() {
-  const { user, signOut, syncToSupabase, isOnline } = useAuth()
-  const [syncing, setSyncing] = useState(false)
-  const [syncMessage, setSyncMessage] = useState('')
+  const [cycleData, setCycleData] = useState(null)
+  const [periodHistory, setPeriodHistory] = useState([])
+  const [showAddPrevious, setShowAddPrevious] = useState(false)
+  const [previousDate, setPreviousDate] = useState('')
   
-  // Cycle tracking states
-  const [startDate, setStartDate] = useState('')
-  const [periodLength, setPeriodLength] = useState(5)
-  const [cycleLength, setCycleLength] = useState(28)
-  const [hasCycleData, setHasCycleData] = useState(false)
-  const [nextPeriodDate, setNextPeriodDate] = useState(null)
-  const [currentPhase, setCurrentPhase] = useState(null)
-  const [cycleDay, setCycleDay] = useState(null)
-  
-  // Symptom tracking
-  const [showSymptomTracker, setShowSymptomTracker] = useState(false)
-  const [todaySymptoms, setTodaySymptoms] = useState([])
-  const [symptomHistory, setSymptomHistory] = useState([])
-
-  const availableSymptoms = {
-    'Physical': [
-      'Cramps',
-      'Headache',
-      'Bloating',
-      'Tender breasts',
-      'Fatigue',
-      'Back pain',
-      'Nausea',
-      'Acne'
-    ],
-    'Mood': [
-      'Irritable',
-      'Anxious',
-      'Low mood',
-      'Emotional',
-      'Brain fog',
-      'Can\'t focus',
-      'Energetic',
-      'Creative'
-    ],
-    'Energy': [
-      'High energy',
-      'Medium energy',
-      'Low energy',
-      'Exhausted'
-    ],
-    'Sleep': [
-      'Slept well',
-      'Insomnia',
-      'Restless sleep',
-      'Oversleeping'
-    ],
-    'Cravings': [
-      'Sweet cravings',
-      'Salty cravings',
-      'Carb cravings',
-      'No appetite',
-      'Increased appetite'
-    ]
-  }
+  // Current period tracking
+  const [trackingPeriod, setTrackingPeriod] = useState(false)
+  const [periodStartDate, setPeriodStartDate] = useState('')
 
   useEffect(() => {
     loadCycleData()
-    loadSymptomHistory()
+    loadPeriodHistory()
   }, [])
 
   function loadCycleData() {
     const saved = localStorage.getItem(CYCLE_KEY)
     if (saved) {
-      try {
-        const data = JSON.parse(saved)
-        setStartDate(data.start_date || '')
-        setPeriodLength(data.period_length || 5)
-        setCycleLength(data.cycle_length || 28)
-        setHasCycleData(true)
-        
-        if (data.start_date) {
-          calculatePredictions(data.start_date, data.cycle_length)
-        }
-      } catch (e) {
-        console.error('Error loading cycle data:', e)
-      }
+      setCycleData(JSON.parse(saved))
     }
   }
 
-  function loadSymptomHistory() {
-    const saved = localStorage.getItem(SYMPTOMS_KEY)
+  function loadPeriodHistory() {
+    const saved = localStorage.getItem(PERIOD_HISTORY_KEY)
     if (saved) {
-      try {
-        const history = JSON.parse(saved)
-        setSymptomHistory(history)
-        
-        // Check if symptoms logged today
-        const today = new Date().toDateString()
-        const todayEntry = history.find(entry => 
-          new Date(entry.date).toDateString() === today
-        )
-        if (todayEntry) {
-          setTodaySymptoms(todayEntry.symptoms)
+      setPeriodHistory(JSON.parse(saved))
+    }
+  }
+
+  function saveCycleData(data) {
+    localStorage.setItem(CYCLE_KEY, JSON.stringify(data))
+    setCycleData(data)
+  }
+
+  function savePeriodHistory(history) {
+    localStorage.setItem(PERIOD_HISTORY_KEY, JSON.stringify(history))
+    setPeriodHistory(history)
+  }
+
+  function startPeriod() {
+    const today = new Date().toISOString().split('T')[0]
+    
+    const newCycleData = {
+      start_date: today,
+      cycle_length: cycleData?.cycle_length || 28,
+      period_length: cycleData?.period_length || 5
+    }
+    
+    saveCycleData(newCycleData)
+    
+    // Add to history
+    const newHistory = [
+      ...periodHistory,
+      {
+        date: today,
+        addedAt: new Date().toISOString()
+      }
+    ].sort((a, b) => new Date(b.date) - new Date(a.date))
+    
+    savePeriodHistory(newHistory)
+    
+    setTrackingPeriod(false)
+    setPeriodStartDate('')
+  }
+
+  function addPreviousPeriod() {
+    if (!previousDate) return
+    
+    const newHistory = [
+      ...periodHistory,
+      {
+        date: previousDate,
+        addedAt: new Date().toISOString()
+      }
+    ].sort((a, b) => new Date(b.date) - new Date(a.date))
+    
+    savePeriodHistory(newHistory)
+    
+    // Update cycle data if this is the most recent period
+    const mostRecent = newHistory[0]
+    if (mostRecent.date === previousDate) {
+      const newCycleData = {
+        start_date: previousDate,
+        cycle_length: cycleData?.cycle_length || 28,
+        period_length: cycleData?.period_length || 5
+      }
+      saveCycleData(newCycleData)
+    }
+    
+    setShowAddPrevious(false)
+    setPreviousDate('')
+  }
+
+  function deletePeriodEntry(date) {
+    if (confirm('Delete this period entry?')) {
+      const updated = periodHistory.filter(p => p.date !== date)
+      savePeriodHistory(updated)
+      
+      // Update cycle data if we deleted the most recent
+      if (cycleData?.start_date === date && updated.length > 0) {
+        const newCycleData = {
+          ...cycleData,
+          start_date: updated[0].date
         }
-      } catch (e) {
-        console.error('Error loading symptoms:', e)
+        saveCycleData(newCycleData)
       }
     }
   }
 
-  function calculatePredictions(startDateStr, cycleLengthNum) {
-    const start = new Date(startDateStr)
+  function updateCycleLength(length) {
+    const newCycleData = {
+      ...cycleData,
+      cycle_length: parseInt(length)
+    }
+    saveCycleData(newCycleData)
+  }
+
+  function updatePeriodLength(length) {
+    const newCycleData = {
+      ...cycleData,
+      period_length: parseInt(length)
+    }
+    saveCycleData(newCycleData)
+  }
+
+  // Calculate stats
+  function calculateAverageCycle() {
+    if (periodHistory.length < 2) return null
+    
+    const sortedHistory = [...periodHistory].sort((a, b) => 
+      new Date(a.date) - new Date(b.date)
+    )
+    
+    let totalDays = 0
+    let count = 0
+    
+    for (let i = 1; i < sortedHistory.length; i++) {
+      const prevDate = new Date(sortedHistory[i - 1].date)
+      const currDate = new Date(sortedHistory[i].date)
+      const diff = Math.floor((currDate - prevDate) / (1000 * 60 * 60 * 24))
+      
+      // Only count realistic cycle lengths (15-45 days)
+      if (diff >= 15 && diff <= 45) {
+        totalDays += diff
+        count++
+      }
+    }
+    
+    return count > 0 ? Math.round(totalDays / count) : null
+  }
+
+  function getNextPredictedPeriod() {
+    if (!cycleData?.start_date) return null
+    
+    const startDate = new Date(cycleData.start_date)
+    const cycleLength = cycleData.cycle_length || 28
+    const nextDate = new Date(startDate)
+    nextDate.setDate(nextDate.getDate() + cycleLength)
+    
+    return nextDate
+  }
+
+  function getCurrentPhase() {
+    if (!cycleData?.start_date) return 'Unknown'
+    
+    const start = new Date(cycleData.start_date)
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     start.setHours(0, 0, 0, 0)
     
     const diff = Math.floor((today - start) / (1000 * 60 * 60 * 24))
-    const currentCycleDay = (diff % cycleLengthNum) + 1
+    const cycleDay = (diff % (cycleData.cycle_length || 28)) + 1
     
-    // Calculate next period
-    const daysUntilNext = cycleLengthNum - currentCycleDay + 1
-    const nextPeriod = new Date(today)
-    nextPeriod.setDate(today.getDate() + daysUntilNext)
-    
-    setNextPeriodDate(nextPeriod)
-    setCycleDay(currentCycleDay)
-    
-    // Determine phase
-    let phase = "Follicular"
-    if (currentCycleDay >= 1 && currentCycleDay <= 5) phase = "Menstrual"
-    else if (currentCycleDay >= 6 && currentCycleDay <= 13) phase = "Follicular"
-    else if (currentCycleDay >= 14 && currentCycleDay <= 16) phase = "Ovulatory"
-    else phase = "Luteal"
-    
-    setCurrentPhase(phase)
+    if (cycleDay >= 1 && cycleDay <= 5) return 'Menstrual'
+    if (cycleDay >= 6 && cycleDay <= 13) return 'Follicular'
+    if (cycleDay >= 14 && cycleDay <= 16) return 'Ovulatory'
+    return 'Luteal'
   }
 
-  function saveCycleData() {
-    if (!startDate) {
-      alert('Please enter your period start date')
-      return
-    }
-
-    const cycleData = {
-      start_date: startDate,
-      period_length: periodLength,
-      cycle_length: cycleLength,
-      updated_at: new Date().toISOString()
-    }
-
-    localStorage.setItem(CYCLE_KEY, JSON.stringify(cycleData))
-    setHasCycleData(true)
-    calculatePredictions(startDate, cycleLength)
-    
-    // Sync to cloud if online
-    if (user && isOnline) {
-      syncToSupabase()
-    }
-    
-    alert('Cycle data saved! 🌸')
-  }
-
-  function resetCycleData() {
-    if (confirm('Are you sure you want to update your cycle data?')) {
-      setHasCycleData(false)
-    }
-  }
-
-  function toggleSymptom(symptom) {
-    if (todaySymptoms.includes(symptom)) {
-      setTodaySymptoms(todaySymptoms.filter(s => s !== symptom))
-    } else {
-      setTodaySymptoms([...todaySymptoms, symptom])
-    }
-  }
-
-  function saveSymptoms() {
-    const today = new Date().toISOString().split('T')[0]
-    
-    // Remove today's entry if it exists
-    const updatedHistory = symptomHistory.filter(
-      entry => entry.date !== today
-    )
-    
-    // Add new entry
-    const newEntry = {
-      date: today,
-      cycleDay: cycleDay,
-      phase: currentPhase,
-      symptoms: todaySymptoms
-    }
-    
-    const newHistory = [...updatedHistory, newEntry].sort((a, b) => 
-      new Date(b.date) - new Date(a.date)
-    )
-    
-    setSymptomHistory(newHistory)
-    localStorage.setItem(SYMPTOMS_KEY, JSON.stringify(newHistory))
-    
-    // Sync to cloud if online
-    if (user && isOnline) {
-      syncToSupabase()
-    }
-    
-    setShowSymptomTracker(false)
-    alert('Symptoms saved! 📊')
-  }
-
-  function getSymptomInsights() {
-    if (symptomHistory.length < 7) return null
-    
-    // Analyze patterns
-    const patterns = {}
-    
-    symptomHistory.forEach(entry => {
-      const phase = entry.phase
-      if (!patterns[phase]) {
-        patterns[phase] = {}
-      }
-      
-      entry.symptoms.forEach(symptom => {
-        patterns[phase][symptom] = (patterns[phase][symptom] || 0) + 1
-      })
-    })
-    
-    // Find most common symptoms per phase
-    const insights = {}
-    Object.keys(patterns).forEach(phase => {
-      const symptomCounts = patterns[phase]
-      const sortedSymptoms = Object.entries(symptomCounts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([symptom, count]) => ({ symptom, count }))
-      
-      insights[phase] = sortedSymptoms
-    })
-    
-    return insights
-  }
-
-  const insights = getSymptomInsights()
-
-  async function handleManualSync() {
-    if (!isOnline) {
-      setSyncMessage('❌ Cannot sync while offline')
-      setTimeout(() => setSyncMessage(''), 3000)
-      return
-    }
-    
-    setSyncing(true)
-    setSyncMessage('')
-    try {
-      await syncToSupabase()
-      setSyncMessage('✅ Data synced successfully!')
-      setTimeout(() => setSyncMessage(''), 3000)
-    } catch (error) {
-      setSyncMessage('❌ Sync failed')
-      setTimeout(() => setSyncMessage(''), 3000)
-    } finally {
-      setSyncing(false)
-    }
-  }
-
-  async function handleSignOut() {
-    try {
-      await signOut()
-    } catch (error) {
-      console.error('Sign out error:', error)
-    }
-  }
-
-  function getDaysUntilPeriod() {
-    if (!nextPeriodDate) return null
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const diff = Math.floor((nextPeriodDate - today) / (1000 * 60 * 60 * 24))
-    return diff
-  }
-
-  const daysUntil = getDaysUntilPeriod()
+  const averageCycle = calculateAverageCycle()
+  const nextPeriod = getNextPredictedPeriod()
+  const currentPhase = getCurrentPhase()
 
   return (
-    <div style={{ padding: "20px", maxWidth: "600px", margin: "0 auto", paddingBottom: "100px" }}>
-      <h1 style={{ textAlign: "center", marginBottom: "32px" }}>Me</h1>
+    <div style={{ padding: '20px', maxWidth: '600px', margin: '0 auto', paddingBottom: '100px' }}>
+      <h1 style={{ textAlign: 'center', marginBottom: '24px' }}>Me</h1>
 
-      {/* Cycle Tracking Section */}
-      <div style={{
-        background: "white",
-        borderRadius: "12px",
-        padding: "24px",
-        marginBottom: "20px",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.08)"
-      }}>
-        <h3 style={{ marginBottom: "16px" }}>Cycle Tracking</h3>
-        
-        {hasCycleData ? (
-          <div>
-            {/* Current Status */}
-            <div style={{ 
-              padding: "16px", 
-              background: "linear-gradient(135deg, #f0f0ff 0%, #fff9f0 100%)",
-              borderRadius: "8px",
-              marginBottom: "16px"
-            }}>
-              <div style={{ fontSize: "16px", fontWeight: 600, marginBottom: "12px" }}>
-                Day {cycleDay} • {currentPhase} Phase
-              </div>
-              <div style={{ fontSize: "14px", marginBottom: "8px", color: "#666" }}>
-                <strong>Last Period:</strong> {new Date(startDate).toLocaleDateString('en-GB')}
-              </div>
-              <div style={{ fontSize: "14px", color: "#666" }}>
-                <strong>Period Length:</strong> {periodLength} days • <strong>Cycle:</strong> {cycleLength} days
-              </div>
-            </div>
-
-            {/* Next Period Prediction */}
-            {nextPeriodDate && (
-              <div style={{
-                padding: "16px",
-                background: daysUntil <= 3 ? "#fff0f0" : "#f0fff0",
-                border: `2px solid ${daysUntil <= 3 ? "#ffcccc" : "#ccffcc"}`,
-                borderRadius: "8px",
-                marginBottom: "16px"
-              }}>
-                <div style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px" }}>
-                  📅 Next Period Predicted:
-                </div>
-                <div style={{ fontSize: "18px", fontWeight: 600, color: daysUntil <= 3 ? "#cc0000" : "#00cc00" }}>
-                  {nextPeriodDate.toLocaleDateString('en-GB', { 
-                    weekday: 'long', 
-                    day: 'numeric', 
-                    month: 'long' 
-                  })}
-                </div>
-                <div style={{ fontSize: "14px", color: "#666", marginTop: "4px" }}>
-                  {daysUntil === 0 ? "Expected today" :
-                   daysUntil === 1 ? "Expected tomorrow" :
-                   daysUntil < 0 ? `${Math.abs(daysUntil)} days overdue` :
-                   `In ${daysUntil} days`}
-                </div>
-              </div>
-            )}
-            
-            {/* Symptom Tracker Button */}
-            <button
-              onClick={() => setShowSymptomTracker(true)}
-              style={{
-                width: "100%",
-                padding: "12px",
-                background: todaySymptoms.length > 0 ? "#e6f7e6" : "white",
-                color: todaySymptoms.length > 0 ? "#060" : "#666",
-                border: todaySymptoms.length > 0 ? "2px solid #060" : "1px solid #ddd",
-                borderRadius: "8px",
-                fontSize: "14px",
-                fontWeight: 600,
-                cursor: "pointer",
-                marginBottom: "12px"
-              }}
-            >
-              {todaySymptoms.length > 0 
-                ? `✅ ${todaySymptoms.length} symptoms logged today`
-                : "📊 Track Today's Symptoms"
-              }
-            </button>
-
-            <button
-              onClick={resetCycleData}
-              style={{
-                width: "100%",
-                padding: "12px",
-                background: "white",
-                color: "#666",
-                border: "1px solid #ddd",
-                borderRadius: "8px",
-                fontSize: "14px",
-                cursor: "pointer"
-              }}
-            >
-              Update Cycle Details
-            </button>
-          </div>
-        ) : (
-          <div>
-            <p style={{ fontSize: "14px", color: "#666", marginBottom: "20px" }}>
-              Track your cycle to get phase-aware insights, capacity recommendations, and period predictions.
-            </p>
-
-            <div style={{ marginBottom: "16px" }}>
-              <label style={{ display: "block", marginBottom: "8px", fontSize: "14px", fontWeight: 500 }}>
-                When did your last period start?
-              </label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "12px",
-                  borderRadius: "8px",
-                  border: "1px solid #ddd",
-                  fontSize: "15px"
-                }}
-              />
-            </div>
-
-            <div style={{ marginBottom: "16px" }}>
-              <label style={{ display: "block", marginBottom: "8px", fontSize: "14px", fontWeight: 500 }}>
-                How many days does your period typically last?
-              </label>
-              <input
-                type="number"
-                min="2"
-                max="10"
-                value={periodLength}
-                onChange={(e) => setPeriodLength(parseInt(e.target.value))}
-                style={{
-                  width: "100%",
-                  padding: "12px",
-                  borderRadius: "8px",
-                  border: "1px solid #ddd",
-                  fontSize: "15px"
-                }}
-              />
-            </div>
-
-            <div style={{ marginBottom: "20px" }}>
-              <label style={{ display: "block", marginBottom: "8px", fontSize: "14px", fontWeight: 500 }}>
-                How long is your full cycle? (days from one period to the next)
-              </label>
-              <input
-                type="number"
-                min="21"
-                max="35"
-                value={cycleLength}
-                onChange={(e) => setCycleLength(parseInt(e.target.value))}
-                style={{
-                  width: "100%",
-                  padding: "12px",
-                  borderRadius: "8px",
-                  border: "1px solid #ddd",
-                  fontSize: "15px"
-                }}
-              />
-            </div>
-
-            <button
-              onClick={saveCycleData}
-              style={{
-                width: "100%",
-                padding: "14px",
-                background: "linear-gradient(135deg, #c9a87c 0%, #d4a574 100%)",
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
-                fontSize: "16px",
-                fontWeight: 600,
-                cursor: "pointer",
-                boxShadow: "0 4px 12px rgba(201, 168, 124, 0.3)"
-              }}
-            >
-              Save Cycle Data
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Symptom Insights */}
-      {insights && (
+      {/* Current Phase */}
+      {cycleData && (
         <div style={{
-          background: "white",
-          borderRadius: "12px",
-          padding: "24px",
-          marginBottom: "20px",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.08)"
+          background: 'white',
+          borderRadius: '12px',
+          padding: '20px',
+          marginBottom: '20px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+          textAlign: 'center'
         }}>
-          <h3 style={{ marginBottom: "16px" }}>Your Patterns 📈</h3>
-          <p style={{ fontSize: "13px", color: "#666", marginBottom: "16px" }}>
-            Based on {symptomHistory.length} days of tracking
-          </p>
-          
-          {Object.entries(insights).map(([phase, symptoms]) => (
-            symptoms.length > 0 && (
-              <div key={phase} style={{ marginBottom: "12px" }}>
-                <div style={{ fontSize: "14px", fontWeight: 600, marginBottom: "6px" }}>
-                  {phase} Phase:
-                </div>
-                <div style={{ fontSize: "13px", color: "#666" }}>
-                  {symptoms.map(({ symptom, count }) => (
-                    <span key={symptom} style={{
-                      display: "inline-block",
-                      padding: "4px 8px",
-                      background: "#f0f0f0",
-                      borderRadius: "12px",
-                      marginRight: "6px",
-                      marginBottom: "6px"
-                    }}>
-                      {symptom} ({count}×)
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )
-          ))}
+          <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '12px', color: '#666' }}>
+            Current Phase
+          </h3>
+          <div style={{
+            fontSize: '36px',
+            fontWeight: 700,
+            color: '#c9a87c',
+            marginBottom: '8px'
+          }}>
+            {currentPhase}
+          </div>
+          {nextPeriod && (
+            <p style={{ fontSize: '14px', color: '#666', margin: 0 }}>
+              Next period predicted: {nextPeriod.toLocaleDateString('en-GB', {
+                weekday: 'short',
+                day: 'numeric',
+                month: 'short'
+              })}
+            </p>
+          )}
         </div>
       )}
 
-      {/* Symptom Tracker Modal */}
-      {showSymptomTracker && (
-        <div style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: "rgba(0,0,0,0.5)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          zIndex: 1000,
-          padding: "20px"
-        }}>
-          <div style={{
-            background: "white",
-            borderRadius: "12px",
-            padding: "24px",
-            maxWidth: "500px",
-            width: "100%",
-            maxHeight: "90vh",
-            overflow: "auto"
-          }}>
-            <h3 style={{ marginBottom: "8px" }}>Track Today's Symptoms</h3>
-            <p style={{ fontSize: "13px", color: "#666", marginBottom: "20px" }}>
-              Day {cycleDay} • {currentPhase} Phase
+      {/* Period Tracking */}
+      <div style={{
+        background: 'white',
+        borderRadius: '12px',
+        padding: '20px',
+        marginBottom: '20px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+      }}>
+        <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '16px' }}>
+          Period Tracking
+        </h3>
+
+        {!trackingPeriod ? (
+          <button
+            onClick={() => setTrackingPeriod(true)}
+            style={{
+              width: '100%',
+              padding: '16px',
+              background: '#E91E63',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              fontSize: '15px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              marginBottom: '12px'
+            }}
+          >
+            🩸 Start Period Today
+          </button>
+        ) : (
+          <div style={{ marginBottom: '12px' }}>
+            <p style={{ fontSize: '14px', color: '#666', marginBottom: '12px' }}>
+              Mark today as the start of your period?
             </p>
-
-            {Object.entries(availableSymptoms).map(([category, symptoms]) => (
-              <div key={category} style={{ marginBottom: "20px" }}>
-                <div style={{ fontSize: "14px", fontWeight: 600, marginBottom: "8px" }}>
-                  {category}
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                  {symptoms.map(symptom => (
-                    <button
-                      key={symptom}
-                      onClick={() => toggleSymptom(symptom)}
-                      style={{
-                        padding: "8px 12px",
-                        borderRadius: "20px",
-                        border: todaySymptoms.includes(symptom) ? "2px solid #c9a87c" : "1px solid #ddd",
-                        background: todaySymptoms.includes(symptom) ? "#fff9f0" : "white",
-                        cursor: "pointer",
-                        fontSize: "13px",
-                        fontWeight: todaySymptoms.includes(symptom) ? 600 : 400
-                      }}
-                    >
-                      {symptom}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-
-            <div style={{ display: "flex", gap: "12px", marginTop: "24px" }}>
+            <div style={{ display: 'flex', gap: '12px' }}>
               <button
-                onClick={() => setShowSymptomTracker(false)}
+                onClick={startPeriod}
                 style={{
                   flex: 1,
-                  padding: "12px",
-                  background: "white",
-                  border: "1px solid #ddd",
-                  borderRadius: "8px",
-                  cursor: "pointer",
-                  fontSize: "15px"
+                  padding: '12px',
+                  background: '#27AE60',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                ✓ Yes
+              </button>
+              <button
+                onClick={() => setTrackingPeriod(false)}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  background: 'white',
+                  border: '2px solid #ddd',
+                  borderRadius: '8px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
                 }}
               >
                 Cancel
               </button>
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={() => setShowAddPrevious(true)}
+          style={{
+            width: '100%',
+            padding: '12px',
+            background: 'white',
+            border: '2px solid #c9a87c',
+            color: '#c9a87c',
+            borderRadius: '8px',
+            fontSize: '14px',
+            fontWeight: 600,
+            cursor: 'pointer'
+          }}
+        >
+          📅 Add Previous Period
+        </button>
+      </div>
+
+      {/* Cycle Settings */}
+      <div style={{
+        background: 'white',
+        borderRadius: '12px',
+        padding: '20px',
+        marginBottom: '20px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+      }}>
+        <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '16px' }}>
+          Cycle Settings
+        </h3>
+
+        <div style={{ marginBottom: '16px' }}>
+          <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>
+            Average Cycle Length
+          </label>
+          <input
+            type="number"
+            value={cycleData?.cycle_length || 28}
+            onChange={(e) => updateCycleLength(e.target.value)}
+            min={21}
+            max={35}
+            style={{
+              width: '100%',
+              padding: '12px',
+              borderRadius: '8px',
+              border: '1px solid #ddd',
+              fontSize: '15px'
+            }}
+          />
+          {averageCycle && averageCycle !== cycleData?.cycle_length && (
+            <div style={{ fontSize: '12px', color: '#666', marginTop: '6px' }}>
+              💡 Based on your history: {averageCycle} days
               <button
-                onClick={saveSymptoms}
+                onClick={() => updateCycleLength(averageCycle)}
                 style={{
-                  flex: 1,
-                  padding: "12px",
-                  background: "#c9a87c",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "8px",
-                  cursor: "pointer",
-                  fontSize: "15px",
-                  fontWeight: 600
+                  marginLeft: '8px',
+                  background: 'none',
+                  border: 'none',
+                  color: '#3498DB',
+                  textDecoration: 'underline',
+                  cursor: 'pointer',
+                  fontSize: '12px'
                 }}
               >
-                Save ({todaySymptoms.length})
+                Use this
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>
+            Period Length (days)
+          </label>
+          <input
+            type="number"
+            value={cycleData?.period_length || 5}
+            onChange={(e) => updatePeriodLength(e.target.value)}
+            min={3}
+            max={7}
+            style={{
+              width: '100%',
+              padding: '12px',
+              borderRadius: '8px',
+              border: '1px solid #ddd',
+              fontSize: '15px'
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Period History */}
+      {periodHistory.length > 0 && (
+        <div style={{
+          background: 'white',
+          borderRadius: '12px',
+          padding: '20px',
+          marginBottom: '20px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+        }}>
+          <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '16px' }}>
+            Period History
+            {averageCycle && (
+              <span style={{ fontSize: '14px', fontWeight: 400, color: '#666', marginLeft: '8px' }}>
+                (avg: {averageCycle} days)
+              </span>
+            )}
+          </h3>
+
+          {periodHistory.length < 2 && (
+            <div style={{
+              padding: '12px',
+              background: '#FFF9E6',
+              borderRadius: '8px',
+              fontSize: '13px',
+              color: '#856404',
+              marginBottom: '16px'
+            }}>
+              💡 Add more periods to see your average cycle length
+            </div>
+          )}
+
+          <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+            {periodHistory.slice(0, 10).map((period, index) => {
+              const periodDate = new Date(period.date)
+              
+              // Calculate days since last period
+              let daysSince = null
+              if (index < periodHistory.length - 1) {
+                const prevPeriod = new Date(periodHistory[index + 1].date)
+                daysSince = Math.floor((periodDate - prevPeriod) / (1000 * 60 * 60 * 24))
+              }
+              
+              return (
+                <div
+                  key={period.date}
+                  style={{
+                    padding: '12px',
+                    background: index === 0 ? '#FFF4F8' : '#f9f9f9',
+                    borderRadius: '8px',
+                    marginBottom: '8px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '2px' }}>
+                      {periodDate.toLocaleDateString('en-GB', {
+                        weekday: 'short',
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric'
+                      })}
+                      {index === 0 && (
+                        <span style={{
+                          marginLeft: '8px',
+                          padding: '2px 6px',
+                          background: '#E91E63',
+                          color: 'white',
+                          borderRadius: '4px',
+                          fontSize: '10px',
+                          fontWeight: 600
+                        }}>
+                          LATEST
+                        </span>
+                      )}
+                    </div>
+                    {daysSince && (
+                      <div style={{ fontSize: '12px', color: '#666' }}>
+                        {daysSince} days after previous
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => deletePeriodEntry(period.date)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#E74C3C',
+                      fontSize: '16px',
+                      cursor: 'pointer',
+                      padding: '4px 8px'
+                    }}
+                    title="Delete"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Add Previous Period Modal */}
+      {showAddPrevious && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.7)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          padding: '20px'
+        }}>
+          <div style={{
+            background: 'white',
+            borderRadius: '16px',
+            padding: '24px',
+            maxWidth: '400px',
+            width: '100%'
+          }}>
+            <h3 style={{ marginBottom: '16px' }}>Add Previous Period</h3>
+            
+            <p style={{ fontSize: '14px', color: '#666', marginBottom: '16px' }}>
+              When did your last period start?
+            </p>
+
+            <input
+              type="date"
+              value={previousDate}
+              onChange={(e) => setPreviousDate(e.target.value)}
+              max={new Date().toISOString().split('T')[0]}
+              style={{
+                width: '100%',
+                padding: '12px',
+                borderRadius: '8px',
+                border: '1px solid #ddd',
+                fontSize: '15px',
+                marginBottom: '20px'
+              }}
+              autoFocus
+            />
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={addPreviousPeriod}
+                disabled={!previousDate}
+                style={{
+                  flex: 1,
+                  padding: '14px',
+                  background: previousDate ? '#c9a87c' : '#ddd',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontSize: '15px',
+                  fontWeight: 600,
+                  cursor: previousDate ? 'pointer' : 'not-allowed'
+                }}
+              >
+                ✓ Add Period
+              </button>
+              <button
+                onClick={() => {
+                  setShowAddPrevious(false)
+                  setPreviousDate('')
+                }}
+                style={{
+                  padding: '14px 24px',
+                  background: 'white',
+                  border: '2px solid #ddd',
+                  borderRadius: '8px',
+                  fontSize: '15px',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Cancel
               </button>
             </div>
           </div>
         </div>
       )}
-
-      {/* Account Info */}
-      <div style={{
-        background: "white",
-        borderRadius: "12px",
-        padding: "24px",
-        marginBottom: "20px",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.08)"
-      }}>
-        <h3 style={{ marginBottom: "16px" }}>Account</h3>
-        <div style={{ fontSize: "14px", color: "#666", marginBottom: "8px" }}>
-          <strong>Email:</strong> {user?.email}
-        </div>
-        <div style={{ fontSize: "14px", color: "#666" }}>
-          <strong>User ID:</strong> {user?.id?.slice(0, 8)}...
-        </div>
-      </div>
-
-      {/* Sync Section */}
-      <div style={{
-        background: "white",
-        borderRadius: "12px",
-        padding: "24px",
-        marginBottom: "20px",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.08)"
-      }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-          <h3 style={{ margin: 0 }}>Cloud Sync</h3>
-          <div style={{
-            padding: "6px 12px",
-            borderRadius: "12px",
-            background: isOnline ? "#e6f7e6" : "#fee",
-            color: isOnline ? "#060" : "#c00",
-            fontSize: "13px",
-            fontWeight: 600
-          }}>
-            {isOnline ? "🌐 Online" : "📴 Offline"}
-          </div>
-        </div>
-        <p style={{ fontSize: "14px", color: "#666", marginBottom: "16px" }}>
-          {isOnline 
-            ? "Your data automatically syncs every 30 seconds."
-            : "You're offline. Changes are saved locally and will sync when you're back online."
-          }
-        </p>
-        
-        {syncMessage && (
-          <div style={{
-            padding: "12px",
-            background: syncMessage.includes('✅') ? "#e6f7e6" : "#fee",
-            borderRadius: "8px",
-            marginBottom: "12px",
-            fontSize: "14px"
-          }}>
-            {syncMessage}
-          </div>
-        )}
-
-        <button
-          onClick={handleManualSync}
-          disabled={syncing || !isOnline}
-          style={{
-            width: "100%",
-            padding: "12px",
-            background: (syncing || !isOnline) ? "#ccc" : "#c9a87c",
-            color: "white",
-            border: "none",
-            borderRadius: "8px",
-            fontSize: "15px",
-            fontWeight: 600,
-            cursor: (syncing || !isOnline) ? "not-allowed" : "pointer"
-          }}
-        >
-          {syncing ? "Syncing..." : isOnline ? "🔄 Sync Now" : "📴 Offline"}
-        </button>
-      </div>
-
-      {/* About Section */}
-      <div style={{
-        background: "white",
-        borderRadius: "12px",
-        padding: "24px",
-        marginBottom: "20px",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.08)"
-      }}>
-        <h3 style={{ marginBottom: "12px" }}>About FemWork</h3>
-        <p style={{ fontSize: "14px", color: "#666", lineHeight: "1.6", marginBottom: "12px" }}>
-          FemWork is a cycle-aware productivity app that helps you work with your body, not against it.
-        </p>
-        <div style={{ fontSize: "13px", color: "#999" }}>
-          Version 1.0.0
-        </div>
-      </div>
-
-      {/* Sign Out Button */}
-      <button
-        onClick={handleSignOut}
-        style={{
-          width: "100%",
-          padding: "14px",
-          background: "white",
-          color: "#c00",
-          border: "2px solid #c00",
-          borderRadius: "8px",
-          fontSize: "15px",
-          fontWeight: 600,
-          cursor: "pointer"
-        }}
-      >
-        Sign Out
-      </button>
-
-      <p style={{
-        marginTop: "16px",
-        fontSize: "12px",
-        color: "#999",
-        textAlign: "center",
-        lineHeight: "1.5"
-      }}>
-        Your data will be synced before signing out
-      </p>
     </div>
   )
 }

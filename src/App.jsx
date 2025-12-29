@@ -10,9 +10,50 @@ import Connection from './pages/Connection'
 import Me from './pages/Me'
 import './App.css'
 
+// ✨ NEW FEATURES - Import only if files exist
+// To enable these features, copy the component files from the implementation package
+let FloatingHelpButton, EmergencyProtocol, BodyCheckModal, useHyperfocusDetector
+
+try {
+  FloatingHelpButton = require('./components/FloatingHelpButton').default
+} catch (e) {
+  console.log('FloatingHelpButton not yet installed')
+}
+
+try {
+  EmergencyProtocol = require('./components/EmergencyProtocol').default
+} catch (e) {
+  console.log('EmergencyProtocol not yet installed')
+}
+
+try {
+  BodyCheckModal = require('./components/BodyCheckModal').default
+} catch (e) {
+  console.log('BodyCheckModal not yet installed')
+}
+
+try {
+  const hook = require('./hooks/useHyperfocusDetector')
+  useHyperfocusDetector = hook.useHyperfocusDetector
+} catch (e) {
+  console.log('useHyperfocusDetector not yet installed')
+  // Fallback hook
+  useHyperfocusDetector = () => ({ 
+    showBodyCheck: false, 
+    dismissBodyCheck: () => {}, 
+    sessionDuration: 0 
+  })
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState('Today')
   const { user, loading } = useAuth()
+  
+  // ✨ NEW: Hyperfocus detection (gracefully handles if not installed)
+  const { showBodyCheck, dismissBodyCheck, sessionDuration } = useHyperfocusDetector()
+  
+  // ✨ NEW: Emergency protocol state
+  const [showEmergency, setShowEmergency] = useState(false)
 
   if (loading) {
     return (
@@ -54,6 +95,25 @@ function App() {
         {activeTab === 'Connection' && <Connection />}
         {activeTab === 'Me' && <Me />}
       </main>
+
+      {/* ✨ NEW: Floating Help Button (only renders if installed) */}
+      {FloatingHelpButton && <FloatingHelpButton onClick={() => setShowEmergency(true)} />}
+
+      {/* ✨ NEW: Emergency Protocol Modal (only renders if installed) */}
+      {showEmergency && EmergencyProtocol && (
+        <EmergencyProtocol 
+          onClose={() => setShowEmergency(false)}
+          phase="Follicular"
+        />
+      )}
+
+      {/* ✨ NEW: Hyperfocus Body Check Modal (only renders if installed) */}
+      {showBodyCheck && BodyCheckModal && (
+        <BodyCheckModal 
+          onClose={dismissBodyCheck}
+          sessionDuration={sessionDuration}
+        />
+      )}
 
       <nav className="bottom-nav">
         <button

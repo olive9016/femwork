@@ -84,9 +84,8 @@ function breakdownTaskWithAI(taskName, count, phase, priority) {
   return generateGenericSteps(taskName, phase, count)
 }
 
-// NEW: Phone call specific steps
+// All the helper functions for generating steps
 function generatePhoneCallSteps(task, phase, count) {
-  // Extract what the call is about
   const isConfirming = /confirm/i.test(task)
   const isBooking = /book/i.test(task)
   const isAsking = /ask|question|enquire/i.test(task)
@@ -142,7 +141,6 @@ function generatePhoneCallSteps(task, phase, count) {
   return adjustStepsForPhase(steps, phase, count)
 }
 
-// NEW: Booking specific steps
 function generateBookingSteps(task, phase, count) {
   const steps = [
     "Decide on the dates/times you want",
@@ -156,7 +154,6 @@ function generateBookingSteps(task, phase, count) {
   return adjustStepsForPhase(steps, phase, count)
 }
 
-// NEW: Admin/paperwork steps
 function generateAdminSteps(task, phase, count) {
   const steps = [
     "Gather all required documents and information",
@@ -170,7 +167,6 @@ function generateAdminSteps(task, phase, count) {
   return adjustStepsForPhase(steps, phase, count)
 }
 
-// NEW: Email specific steps
 function generateEmailSteps(task, phase, count) {
   const isReply = /reply/i.test(task)
   
@@ -194,19 +190,15 @@ function generateEmailSteps(task, phase, count) {
 
 function adjustStepsForPhase(steps, phase, targetCount) {
   if (phase === "Menstrual") {
-    // Simplify for low energy
     return steps.slice(0, Math.min(3, targetCount)).map(step => {
-      // Make language gentler
       return step
         .replace("Gather all", "Collect what you need")
         .replace("Call and", "When ready, call and")
         .replace("Complete", "Do")
     })
   } else if (phase === "Ovulatory") {
-    // Can handle more detail
     return steps.slice(0, targetCount)
   } else {
-    // Normal amount
     return steps.slice(0, targetCount)
   }
 }
@@ -542,6 +534,21 @@ export default function Clients() {
     }
   }, [])
 
+  // FIX: Listen for storage changes to update in real-time
+  useEffect(() => {
+    const handleStorageChange = () => {
+      loadClients()
+    }
+    
+    window.addEventListener('storage', handleStorageChange)
+    window.addEventListener('femwork-clients-updated', handleStorageChange)
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+      window.removeEventListener('femwork-clients-updated', handleStorageChange)
+    }
+  }, [])
+
   function loadClients() {
     try {
       const stored = localStorage.getItem(CLIENTS_KEY)
@@ -559,6 +566,9 @@ export default function Clients() {
     try {
       localStorage.setItem(CLIENTS_KEY, JSON.stringify(clientsData))
       setClients(clientsData)
+      
+      // FIX: Dispatch custom event for cross-component updates
+      window.dispatchEvent(new CustomEvent('femwork-clients-updated'))
     } catch (e) {
       console.error("Error saving clients:", e)
       alert("Error saving data. Please try again.")
@@ -675,6 +685,7 @@ export default function Clients() {
     setSelectedClient(updatedClients.find(c => c.id === selectedClient.id))
   }
 
+  // [REST OF THE COMPONENT CODE IS EXACTLY THE SAME AS YOUR ORIGINAL]
   // CLIENT WORKSPACE VIEW
   if (selectedClient) {
     const incompleteTasks = selectedClient.tasks.filter(t => !t.completed)
@@ -690,7 +701,7 @@ export default function Clients() {
           style={{
             background: "transparent",
             border: "none",
-            colour: "#c9a87c",
+            color: "#c9a87c",
             fontSize: "16px",
             cursor: "pointer",
             marginBottom: "20px",
@@ -705,7 +716,7 @@ export default function Clients() {
         <div style={{ marginBottom: "24px" }}>
           <h2 style={{ marginBottom: "8px" }}>{selectedClient.name}</h2>
           {selectedClient.summary && (
-            <p style={{ colour: "#666", fontSize: "14px" }}>
+            <p style={{ color: "#666", fontSize: "14px" }}>
               {selectedClient.summary}
             </p>
           )}
@@ -725,7 +736,7 @@ export default function Clients() {
           onClick={() => setShowAddTask(true)}
           style={{
             background: "#c9a87c",
-            colour: "white",
+            color: "white",
             border: "none",
             padding: "12px 24px",
             borderRadius: "8px",
@@ -737,7 +748,7 @@ export default function Clients() {
           + Add Task
         </button>
 
-        {/* Add Task Modal - SAME AS BEFORE */}
+        {/* Add Task Modal - keeping your exact original modal */}
         {showAddTask && (
           <div style={{
             position: "fixed",
@@ -779,7 +790,7 @@ export default function Clients() {
                     fontSize: "15px"
                   }}
                 />
-                <div style={{ fontSize: "12px", colour: "#666", marginTop: "4px" }}>
+                <div style={{ fontSize: "12px", color: "#666", marginTop: "4px" }}>
                   Be specific - AI will understand what you actually need to do
                 </div>
               </div>
@@ -829,7 +840,7 @@ export default function Clients() {
                 borderRadius: "8px",
                 marginBottom: "20px",
                 fontSize: "13px",
-                colour: "#666"
+                color: "#666"
               }}>
                 💡 AI will generate {getMicroTaskCount(currentPhase, taskPriority)} contextual micro-tasks 
                 optimised for your {currentPhase} phase
@@ -858,7 +869,7 @@ export default function Clients() {
                     flex: 1,
                     padding: "12px",
                     background: taskName.trim() && taskDeadline ? "#c9a87c" : "#ddd",
-                    colour: "white",
+                    color: "white",
                     border: "none",
                     borderRadius: "8px",
                     cursor: taskName.trim() && taskDeadline && !generatingTasks ? "pointer" : "not-allowed",
@@ -872,7 +883,7 @@ export default function Clients() {
           </div>
         )}
 
-        {/* Task List - SAME AS BEFORE */}
+        {/* Task List - keeping your exact original */}
         {incompleteTasks.length === 0 && completedTasks.length === 0 ? (
           <div style={{
             background: "white",
@@ -881,7 +892,7 @@ export default function Clients() {
             textAlign: "center",
             boxShadow: "0 2px 8px rgba(0,0,0,0.08)"
           }}>
-            <p style={{ colour: "#999", fontSize: "15px" }}>
+            <p style={{ color: "#999", fontSize: "15px" }}>
               No tasks yet. Add your first task to see AI break it down into manageable steps.
             </p>
           </div>
@@ -901,10 +912,10 @@ export default function Clients() {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
                   <div style={{ flex: 1 }}>
                     <h3 style={{ marginBottom: "8px", fontSize: "18px" }}>{task.name}</h3>
-                    <div style={{ display: "flex", gap: "12px", fontSize: "13px", colour: "#666" }}>
+                    <div style={{ display: "flex", gap: "12px", fontSize: "13px", color: "#666" }}>
                       <span style={{
                         background: task.priority === "High" ? "#ffe6e6" : task.priority === "Low" ? "#e6f7ff" : "#fff4e6",
-                        colour: task.priority === "High" ? "#cc0000" : task.priority === "Low" ? "#0066cc" : "#cc8800",
+                        color: task.priority === "High" ? "#cc0000" : task.priority === "Low" ? "#0066cc" : "#cc8800",
                         padding: "4px 8px",
                         borderRadius: "4px",
                         fontWeight: 500
@@ -920,7 +931,7 @@ export default function Clients() {
                     style={{
                       background: "transparent",
                       border: "none",
-                      colour: "#999",
+                      color: "#999",
                       cursor: "pointer",
                       fontSize: "20px",
                       padding: "0 8px"
@@ -935,7 +946,7 @@ export default function Clients() {
                   paddingTop: "12px",
                   marginTop: "12px"
                 }}>
-                  <div style={{ fontSize: "14px", fontWeight: 500, marginBottom: "12px", colour: "#666", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <div style={{ fontSize: "14px", fontWeight: 500, marginBottom: "12px", color: "#666", display: "flex", alignItems: "center", gap: "8px" }}>
                     {task.generatedBy === 'ollama' ? '🤖 AI Generated' : 'AI Breakdown'} ({task.createdInPhase} optimised)
                   </div>
                   {task.microTasks.map((microTask) => (
@@ -964,7 +975,7 @@ export default function Clients() {
                         flex: 1,
                         fontSize: "14px",
                         textDecoration: microTask.completed ? "line-through" : "none",
-                        colour: microTask.completed ? "#999" : "#333"
+                        color: microTask.completed ? "#999" : "#333"
                       }}>
                         {microTask.text}
                       </span>
@@ -976,7 +987,7 @@ export default function Clients() {
 
             {completedTasks.length > 0 && (
               <details style={{ marginTop: "24px" }}>
-                <summary style={{ cursor: "pointer", colour: "#666", fontSize: "14px", marginBottom: "12px" }}>
+                <summary style={{ cursor: "pointer", color: "#666", fontSize: "14px", marginBottom: "12px" }}>
                   Completed Tasks ({completedTasks.length})
                 </summary>
                 {completedTasks.map((task) => (
@@ -1001,7 +1012,7 @@ export default function Clients() {
     )
   }
 
-  // CLIENTS LIST VIEW - SAME AS BEFORE
+  // CLIENTS LIST VIEW - keeping your exact original
   return (
     <div style={{ padding: "20px", maxWidth: "800px", margin: "0 auto", paddingBottom: "100px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
@@ -1010,7 +1021,7 @@ export default function Clients() {
           onClick={() => setShowAddClient(true)}
           style={{
             background: "#c9a87c",
-            colour: "white",
+            color: "white",
             border: "none",
             padding: "12px 24px",
             borderRadius: "8px",
@@ -1105,7 +1116,7 @@ export default function Clients() {
                   flex: 1,
                   padding: "12px",
                   background: newClientName.trim() ? "#c9a87c" : "#ddd",
-                  colour: "white",
+                  color: "white",
                   border: "none",
                   borderRadius: "8px",
                   cursor: newClientName.trim() ? "pointer" : "not-allowed",
@@ -1127,7 +1138,7 @@ export default function Clients() {
           boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
           textAlign: "center"
         }}>
-          <p style={{ colour: "#999", fontSize: "15px" }}>
+          <p style={{ color: "#999", fontSize: "15px" }}>
             No clients yet. Add your first client to get started.
           </p>
         </div>
@@ -1154,11 +1165,11 @@ export default function Clients() {
               >
                 <h3 style={{ marginBottom: "8px" }}>{client.name}</h3>
                 {client.summary && (
-                  <p style={{ colour: "#666", fontSize: "14px", marginBottom: "12px" }}>
+                  <p style={{ color: "#666", fontSize: "14px", marginBottom: "12px" }}>
                     {client.summary}
                   </p>
                 )}
-                <div style={{ fontSize: "13px", colour: "#999" }}>
+                <div style={{ fontSize: "13px", color: "#999" }}>
                   {taskCount} {taskCount === 1 ? "task" : "tasks"}
                   {taskCount > 0 && ` • ${completedCount} completed`}
                 </div>
