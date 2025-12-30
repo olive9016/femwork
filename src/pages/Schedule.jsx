@@ -35,6 +35,7 @@ export default function Schedule() {
   const [customDuration, setCustomDuration] = useState('')
   const [blockType, setBlockType] = useState('work')
   const [blockEnergy, setBlockEnergy] = useState('medium')
+  const [blockRepeat, setBlockRepeat] = useState('none')
 
   useEffect(() => {
     loadSchedule()
@@ -72,6 +73,7 @@ export default function Schedule() {
       title: blockTitle.trim(),
       type: blockType,
       energy: blockEnergy,
+      repeat: blockRepeat,
       completed: false
     }
 
@@ -94,7 +96,8 @@ export default function Schedule() {
             time: blockTime,
             duration: duration,
             type: blockType,
-            energy: blockEnergy
+            energy: blockEnergy,
+            repeat: blockRepeat
           }
         : b
     )
@@ -118,6 +121,7 @@ export default function Schedule() {
     setCustomDuration('')
     setBlockType(block.type)
     setBlockEnergy(block.energy)
+    setBlockRepeat(block.repeat || 'none')
     setSelectedDate(block.date)
   }
 
@@ -128,6 +132,7 @@ export default function Schedule() {
     setCustomDuration('')
     setBlockType('work')
     setBlockEnergy('medium')
+    setBlockRepeat('none')
   }
 
   // DRAG AND DROP
@@ -148,7 +153,7 @@ export default function Schedule() {
     const newTime = `${targetHour.toString().padStart(2, '0')}:00`
 
     const updated = schedule.map(b =>
-      b.id === draggedBlock.id ? { ...b, time: newTime } : b
+      b.id === draggedBlock.id ? { ...b, time: newTime, date: selectedDate } : b
     )
 
     saveSchedule(updated)
@@ -201,6 +206,12 @@ export default function Schedule() {
 
   // Generate hours 6am-11pm
   const hours = Array.from({ length: 18 }, (_, i) => i + 6)
+
+  // Calculate NOW line position
+  const now = new Date()
+  const currentHour = now.getHours()
+  const currentMinute = now.getMinutes()
+  const isToday = selectedDate === new Date().toISOString().split('T')[0]
 
   return (
     <div style={{ padding: '20px', maxWidth: '800px', margin: '0 auto', paddingBottom: '100px' }}>
@@ -262,79 +273,137 @@ export default function Schedule() {
         background: 'white',
         borderRadius: '12px',
         padding: '20px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+        boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
+        position: 'relative'
       }}>
-        {hours.map(hour => (
-          <div
-            key={hour}
-            onDragOver={handleDragOver}
-            onDrop={(e) => handleDrop(hour, e)}
-            style={{
-              minHeight: '60px',
-              borderBottom: '1px solid #f0f0f0',
-              padding: '8px 0',
-              position: 'relative'
-            }}
-          >
-            <div style={{ fontSize: '12px', color: '#999', marginBottom: '8px' }}>
-              {hour.toString().padStart(2, '0')}:00
-            </div>
+        {hours.map(hour => {
+          const showNowLine = isToday && currentHour === hour
+          const nowLineOffset = showNowLine ? (currentMinute / 60) * 60 : 0
 
-            {todayBlocks
-              .filter(b => {
-                const blockHour = parseInt(b.time.split(':')[0])
-                return blockHour === hour
-              })
-              .map(block => (
-                <div
-                  key={block.id}
-                  draggable
-                  onDragStart={(e) => handleDragStart(block, e)}
-                  onClick={() => openEditModal(block)}
-                  style={{
-                    padding: '12px',
-                    background: blockTypes[block.type]?.color || '#999',
-                    color: 'white',
-                    borderRadius: '8px',
-                    marginBottom: '8px',
-                    cursor: 'move',
-                    border: isOverlapping(block, overlaps) ? '3px solid #E74C3C' : 'none',
-                    boxShadow: isOverlapping(block, overlaps)
-                      ? '0 0 0 3px rgba(231, 76, 60, 0.2)'
-                      : '0 2px 4px rgba(0,0,0,0.1)'
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>
-                        {blockTypes[block.type]?.emoji} {block.title}
+          return (
+            <div
+              key={hour}
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDrop(hour, e)}
+              style={{
+                minHeight: '60px',
+                borderBottom: '1px solid #f0f0f0',
+                padding: '8px 0',
+                position: 'relative',
+                background: draggedBlock ? 'rgba(201, 168, 124, 0.05)' : 'transparent',
+                transition: 'background 0.2s'
+              }}
+            >
+              <div style={{ fontSize: '12px', color: '#999', marginBottom: '8px' }}>
+                {hour.toString().padStart(2, '0')}:00
+              </div>
+
+              {todayBlocks
+                .filter(b => {
+                  const blockHour = parseInt(b.time.split(':')[0])
+                  return blockHour === hour
+                })
+                .map(block => (
+                  <div
+                    key={block.id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(block, e)}
+                    onClick={() => openEditModal(block)}
+                    style={{
+                      padding: '12px',
+                      background: blockTypes[block.type]?.color || '#999',
+                      color: 'white',
+                      borderRadius: '8px',
+                      marginBottom: '8px',
+                      cursor: 'move',
+                      opacity: draggedBlock?.id === block.id ? 0.5 : 1,
+                      transition: 'opacity 0.2s',
+                      border: isOverlapping(block, overlaps) ? '3px solid #E74C3C' : 'none',
+                      boxShadow: isOverlapping(block, overlaps)
+                        ? '0 0 0 3px rgba(231, 76, 60, 0.2)'
+                        : '0 2px 4px rgba(0,0,0,0.1)'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>
+                          {blockTypes[block.type]?.emoji} {block.title}
+                          {block.repeat && block.repeat !== 'none' && (
+                            <span style={{
+                              marginLeft: '8px',
+                              fontSize: '11px',
+                              background: 'rgba(255,255,255,0.3)',
+                              padding: '2px 6px',
+                              borderRadius: '4px',
+                              fontWeight: 600
+                            }}>
+                              🔄 {block.repeat}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: '12px', opacity: 0.9 }}>
+                          {block.time} • {block.duration} min • {block.energy} energy
+                        </div>
                       </div>
-                      <div style={{ fontSize: '12px', opacity: 0.9 }}>
-                        {block.time} • {block.duration} min • {block.energy} energy
-                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          deleteBlock(block.id)
+                        }}
+                        style={{
+                          background: 'rgba(255,255,255,0.3)',
+                          border: 'none',
+                          color: 'white',
+                          fontSize: '18px',
+                          cursor: 'pointer',
+                          borderRadius: '4px',
+                          padding: '4px 8px'
+                        }}
+                      >
+                        ×
+                      </button>
                     </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        deleteBlock(block.id)
-                      }}
-                      style={{
-                        background: 'rgba(255,255,255,0.3)',
-                        border: 'none',
-                        color: 'white',
-                        fontSize: '18px',
-                        cursor: 'pointer',
-                        borderRadius: '4px',
-                        padding: '4px 8px'
-                      }}
-                    >
-                      ×
-                    </button>
                   </div>
+                ))}
+
+              {/* NOW LINE */}
+              {showNowLine && (
+                <div style={{
+                  position: 'absolute',
+                  left: '60px',
+                  right: '20px',
+                  top: `${30 + nowLineOffset}px`,
+                  height: '2px',
+                  background: '#E74C3C',
+                  zIndex: 100,
+                  display: 'flex',
+                  alignItems: 'center'
+                }}>
+                  <div style={{
+                    position: 'absolute',
+                    left: '-60px',
+                    background: '#E74C3C',
+                    color: 'white',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    fontSize: '11px',
+                    fontWeight: 600,
+                    whiteSpace: 'nowrap'
+                  }}>
+                    NOW {currentHour.toString().padStart(2, '0')}:{currentMinute.toString().padStart(2, '0')}
+                  </div>
+                  <div style={{
+                    width: '8px',
+                    height: '8px',
+                    background: '#E74C3C',
+                    borderRadius: '50%',
+                    marginLeft: '-4px'
+                  }} />
                 </div>
-              ))}
-          </div>
-        ))}
+              )}
+            </div>
+          )
+        })}
       </div>
 
       {/* Add/Edit Block Modal */}
@@ -479,7 +548,7 @@ export default function Schedule() {
               </select>
             </div>
 
-            <div style={{ marginBottom: '20px' }}>
+            <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>
                 Energy Required
               </label>
@@ -505,6 +574,32 @@ export default function Schedule() {
                     {level === 'high' && '🔴'} {level}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>
+                Repeat
+              </label>
+              <select
+                value={blockRepeat}
+                onChange={(e) => setBlockRepeat(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  borderRadius: '8px',
+                  border: '1px solid #ddd',
+                  fontSize: '15px'
+                }}
+              >
+                <option value="none">No repeat</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly (same day)</option>
+                <option value="biweekly">Every 2 weeks</option>
+                <option value="monthly">Monthly</option>
+              </select>
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '6px' }}>
+                💡 Repeating blocks help you build routines
               </div>
             </div>
 

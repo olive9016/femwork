@@ -3,6 +3,7 @@ import { getAITaskBreakdown } from "../lib/ai"
 
 const CLIENTS_KEY = "femwork_clients"
 const CYCLE_KEY = "femwork_cycle"
+const SCHEDULE_KEY = "femwork_daily_schedule"
 
 function getCurrentPhase(cycleData) {
   if (!cycleData || !cycleData.start_date) return "Follicular"
@@ -516,7 +517,13 @@ export default function Clients() {
   const [taskName, setTaskName] = useState("")
   const [taskPriority, setTaskPriority] = useState("Medium")
   const [taskDeadline, setTaskDeadline] = useState("")
+  const [taskDuration, setTaskDuration] = useState(60)
+  const [taskRepeat, setTaskRepeat] = useState('none')
   const [generatingTasks, setGeneratingTasks] = useState(false)
+  
+  const [showScheduleModal, setShowScheduleModal] = useState(null)
+  const [scheduleTime, setScheduleTime] = useState('09:00')
+  const [scheduleDate, setScheduleDate] = useState(new Date().toISOString().split('T')[0])
   
   const [currentPhase, setCurrentPhase] = useState("Follicular")
 
@@ -623,6 +630,8 @@ export default function Clients() {
       name: taskName.trim(),
       priority: taskPriority,
       deadline: taskDeadline,
+      estimatedDuration: taskDuration,
+      repeat: taskRepeat,
       microTasks: microTasks.map((task, index) => ({
         id: `${Date.now()}-${index}`,
         text: task,
@@ -647,6 +656,8 @@ export default function Clients() {
     setTaskName("")
     setTaskPriority("Medium")
     setTaskDeadline("")
+    setTaskDuration(60)
+    setTaskRepeat('none')
     setGeneratingTasks(false)
     setShowAddTask(false)
   }
@@ -685,7 +696,61 @@ export default function Clients() {
     setSelectedClient(updatedClients.find(c => c.id === selectedClient.id))
   }
 
-  // [REST OF THE COMPONENT CODE IS EXACTLY THE SAME AS YOUR ORIGINAL]
+  function toggleTaskCompletion(taskId) {
+    const updatedClients = clients.map(client =>
+      client.id === selectedClient.id
+        ? {
+            ...client,
+            tasks: client.tasks.map(t =>
+              t.id === taskId ? { ...t, completed: !t.completed } : t
+            )
+          }
+        : client
+    )
+    saveClients(updatedClients)
+    setSelectedClient(updatedClients.find(c => c.id === selectedClient.id))
+  }
+
+  function addToSchedule(task) {
+    // Open modal to let user choose time
+    const now = new Date()
+    let suggestedHour = now.getHours() + 1
+    if (suggestedHour >= 20) suggestedHour = 9
+    
+    setScheduleTime(`${suggestedHour.toString().padStart(2, '0')}:00`)
+    setScheduleDate(new Date().toISOString().split('T')[0])
+    setShowScheduleModal(task)
+  }
+
+  function confirmAddToSchedule() {
+    if (!showScheduleModal) return
+    
+    const task = showScheduleModal
+    const schedule = JSON.parse(localStorage.getItem(SCHEDULE_KEY) || '[]')
+    
+    const newBlock = {
+      id: Date.now(),
+      date: scheduleDate,
+      time: scheduleTime,
+      duration: task.estimatedDuration || 60,
+      title: task.name,
+      type: 'work',
+      energy: 'medium',
+      completed: false,
+      repeat: task.repeat || 'none',
+      taskId: task.id,
+      taskSource: 'client',
+      clientId: selectedClient.id
+    }
+    
+    schedule.push(newBlock)
+    localStorage.setItem(SCHEDULE_KEY, JSON.stringify(schedule))
+    window.dispatchEvent(new CustomEvent('femwork-schedule-updated'))
+    
+    setShowScheduleModal(null)
+    alert(`✅ Added "${task.name}" to schedule!`)
+  }
+
   // CLIENT WORKSPACE VIEW
   if (selectedClient) {
     const incompleteTasks = selectedClient.tasks.filter(t => !t.completed)
@@ -748,7 +813,7 @@ export default function Clients() {
           + Add Task
         </button>
 
-        {/* Add Task Modal - keeping your exact original modal */}
+        {/* Add Task Modal */}
         {showAddTask && (
           <div style={{
             position: "fixed",
@@ -816,7 +881,7 @@ export default function Clients() {
                 </select>
               </div>
 
-              <div style={{ marginBottom: "20px" }}>
+              <div style={{ marginBottom: "16px" }}>
                 <label style={{ display: "block", marginBottom: "8px", fontSize: "14px", fontWeight: 500 }}>
                   Deadline
                 </label>
@@ -834,6 +899,49 @@ export default function Clients() {
                 />
               </div>
 
+              <div style={{ marginBottom: "16px" }}>
+                <label style={{ display: "block", marginBottom: "8px", fontSize: "14px", fontWeight: 500 }}>
+                  Duration (minutes)
+                </label>
+                <input
+                  type="number"
+                  value={taskDuration}
+                  onChange={(e) => setTaskDuration(parseInt(e.target.value))}
+                  min={15}
+                  step={15}
+                  style={{
+                    width: "100%",
+                    padding: "12px",
+                    borderRadius: "8px",
+                    border: "1px solid #ddd",
+                    fontSize: "15px"
+                  }}
+                />
+              </div>
+
+              <div style={{ marginBottom: "20px" }}>
+                <label style={{ display: "block", marginBottom: "8px", fontSize: "14px", fontWeight: 500 }}>
+                  Repeat
+                </label>
+                <select
+                  value={taskRepeat}
+                  onChange={(e) => setTaskRepeat(e.target.value)}
+                  style={{
+                    width: "100%",
+                    padding: "12px",
+                    borderRadius: "8px",
+                    border: "1px solid #ddd",
+                    fontSize: "15px"
+                  }}
+                >
+                  <option value="none">No repeat</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="biweekly">Every 2 weeks</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </div>
+
               <div style={{
                 background: "#f8f9fa",
                 padding: "12px",
@@ -848,7 +956,14 @@ export default function Clients() {
 
               <div style={{ display: "flex", gap: "12px" }}>
                 <button
-                  onClick={() => setShowAddTask(false)}
+                  onClick={() => {
+                    setShowAddTask(false)
+                    setTaskName("")
+                    setTaskPriority("Medium")
+                    setTaskDeadline("")
+                    setTaskDuration(60)
+                    setTaskRepeat('none')
+                  }}
                   disabled={generatingTasks}
                   style={{
                     flex: 1,
@@ -883,7 +998,7 @@ export default function Clients() {
           </div>
         )}
 
-        {/* Task List - keeping your exact original */}
+        {/* Task List */}
         {incompleteTasks.length === 0 && completedTasks.length === 0 ? (
           <div style={{
             background: "white",
@@ -911,8 +1026,28 @@ export default function Clients() {
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
                   <div style={{ flex: 1 }}>
-                    <h3 style={{ marginBottom: "8px", fontSize: "18px" }}>{task.name}</h3>
-                    <div style={{ display: "flex", gap: "12px", fontSize: "13px", color: "#666" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
+                      <input
+                        type="checkbox"
+                        checked={task.completed}
+                        onChange={() => toggleTaskCompletion(task.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          width: "20px",
+                          height: "20px",
+                          cursor: "pointer",
+                          accentColor: "#4CAF50"
+                        }}
+                      />
+                      <h3 style={{ 
+                        margin: 0, 
+                        fontSize: "18px",
+                        textDecoration: task.completed ? "line-through" : "none"
+                      }}>
+                        {task.name}
+                      </h3>
+                    </div>
+                    <div style={{ display: "flex", gap: "12px", fontSize: "13px", color: "#666", flexWrap: "wrap" }}>
                       <span style={{
                         background: task.priority === "High" ? "#ffe6e6" : task.priority === "Low" ? "#e6f7ff" : "#fff4e6",
                         color: task.priority === "High" ? "#cc0000" : task.priority === "Low" ? "#0066cc" : "#cc8800",
@@ -922,6 +1057,17 @@ export default function Clients() {
                       }}>
                         {task.priority}
                       </span>
+                      {task.repeat && task.repeat !== 'none' && (
+                        <span style={{
+                          background: "#E8F5E9",
+                          color: "#27AE60",
+                          padding: "4px 8px",
+                          borderRadius: "4px",
+                          fontWeight: 500
+                        }}>
+                          🔄 {task.repeat}
+                        </span>
+                      )}
                       <span>Due: {new Date(task.deadline).toLocaleDateString('en-GB')}</span>
                       <span>{task.microTasks.filter(mt => mt.completed).length}/{task.microTasks.length} complete</span>
                     </div>
@@ -947,7 +1093,7 @@ export default function Clients() {
                   marginTop: "12px"
                 }}>
                   <div style={{ fontSize: "14px", fontWeight: 500, marginBottom: "12px", color: "#666", display: "flex", alignItems: "center", gap: "8px" }}>
-                    {task.generatedBy === 'ollama' ? '🤖 AI Generated' : 'AI Breakdown'} ({task.createdInPhase} optimised)
+                    {task.generatedBy === 'ollama' ? '🤖 AI Generated' : '🧠 Smart Breakdown'} ({task.createdInPhase} optimised)
                   </div>
                   {task.microTasks.map((microTask) => (
                     <div
@@ -982,6 +1128,24 @@ export default function Clients() {
                     </div>
                   ))}
                 </div>
+
+                <button
+                  onClick={() => addToSchedule(task)}
+                  style={{
+                    width: "100%",
+                    marginTop: "16px",
+                    padding: "12px",
+                    background: "#3498DB",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    cursor: "pointer"
+                  }}
+                >
+                  📅 Add to Schedule
+                </button>
               </div>
             ))}
 
@@ -998,21 +1162,145 @@ export default function Clients() {
                       borderRadius: "8px",
                       padding: "16px",
                       marginBottom: "8px",
-                      opacity: 0.7
+                      opacity: 0.7,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px"
                     }}
                   >
-                    <h4 style={{ fontSize: "16px", textDecoration: "line-through" }}>{task.name}</h4>
+                    <input
+                      type="checkbox"
+                      checked={true}
+                      onChange={() => toggleTaskCompletion(task.id)}
+                      style={{
+                        width: "18px",
+                        height: "18px",
+                        cursor: "pointer"
+                      }}
+                    />
+                    <h4 style={{ fontSize: "16px", textDecoration: "line-through", margin: 0 }}>{task.name}</h4>
                   </div>
                 ))}
               </details>
             )}
           </>
         )}
+
+        {/* Schedule Time Picker Modal */}
+        {showScheduleModal && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+            padding: '20px'
+          }}>
+            <div style={{
+              background: 'white',
+              borderRadius: '16px',
+              padding: '24px',
+              maxWidth: '400px',
+              width: '100%'
+            }}>
+              <h3 style={{ marginBottom: '16px' }}>Add to Schedule</h3>
+              
+              <div style={{
+                background: '#f8f9fa',
+                padding: '12px',
+                borderRadius: '8px',
+                marginBottom: '20px'
+              }}>
+                <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '4px' }}>
+                  {showScheduleModal.name}
+                </div>
+                <div style={{ fontSize: '12px', color: '#666' }}>
+                  {showScheduleModal.estimatedDuration || 60} minutes • {selectedClient.name}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>
+                  Date
+                </label>
+                <input
+                  type="date"
+                  value={scheduleDate}
+                  onChange={(e) => setScheduleDate(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '1px solid #ddd',
+                    fontSize: '15px'
+                  }}
+                />
+              </div>
+
+              <div style={{ marginBottom: '20px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', fontSize: '14px', fontWeight: 500 }}>
+                  Time
+                </label>
+                <input
+                  type="time"
+                  value={scheduleTime}
+                  onChange={(e) => setScheduleTime(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '1px solid #ddd',
+                    fontSize: '15px'
+                  }}
+                  autoFocus
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button
+                  onClick={confirmAddToSchedule}
+                  style={{
+                    flex: 1,
+                    padding: '14px',
+                    background: '#3498DB',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '15px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  ✓ Add to Schedule
+                </button>
+                <button
+                  onClick={() => setShowScheduleModal(null)}
+                  style={{
+                    padding: '14px 24px',
+                    background: 'white',
+                    border: '2px solid #ddd',
+                    borderRadius: '8px',
+                    fontSize: '15px',
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
 
-  // CLIENTS LIST VIEW - keeping your exact original
+  // CLIENTS LIST VIEW
   return (
     <div style={{ padding: "20px", maxWidth: "800px", margin: "0 auto", paddingBottom: "100px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
